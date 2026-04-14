@@ -1,13 +1,17 @@
-
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.fftpack import fft2, ifft2
+# ── 唯一的改動：scipy.fftpack → scipy.fft，支援 workers 多執行緒 ──
+from scipy.fft import fft2, ifft2
+import os
 import time
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.colors as mcolor
 import matplotlib.cm as cm
 import netCDF4 as nc
+
+# 自動偵測 CPU 數量，讓 FFT 用全部核心
+_N_WORKERS = os.cpu_count()
 
 #==============================================================================
 # Constant
@@ -50,7 +54,7 @@ class SWE_functions:
 
         with np.errstate(invalid='ignore', divide='ignore'):
           f_hat = np.where(np.logical_or(self.K==0,self.L==0), \
-                           fft2(f), fft2(f)*(np.sin(self.K*np.pi/(2*self.mx))/(self.K*np.pi/(2*self.mx)))*(np.sin(self.L*np.pi/(2*self.my))/(self.L*np.pi/(2*self.my))))
+                           fft2(f, workers=_N_WORKERS), fft2(f, workers=_N_WORKERS)*(np.sin(self.K*np.pi/(2*self.mx))/(self.K*np.pi/(2*self.mx)))*(np.sin(self.L*np.pi/(2*self.my))/(self.L*np.pi/(2*self.my))))
         f_hat = np.where(np.logical_or(abs(self.K_o)>mx,abs(self.L_o)>my), 0, f_hat)
 
 
@@ -58,21 +62,21 @@ class SWE_functions:
         return (f_hat)
         
     def ini_wind(self, zeta):
-        zeta_hat = fft2(zeta)
+        zeta_hat = fft2(zeta, workers=_N_WORKERS)
         with np.errstate(invalid='ignore', divide='ignore'):
           psi_hat  = np.where(self.k_squared==0, zeta_hat, -zeta_hat / self.k_squared)
         psi_hat  = np.where(np.logical_or(abs(self.K_o)>mx,abs(self.L_o)>my), 0, psi_hat)
         
-        u = -np.real(ifft2(1j*self.ky*psi_hat)); v = np.real(ifft2(1j*self.kx*psi_hat))
+        u = -np.real(ifft2(1j*self.ky*psi_hat, workers=_N_WORKERS)); v = np.real(ifft2(1j*self.kx*psi_hat, workers=_N_WORKERS))
         
-        Lap_P=rho*f*np.real(ifft2(-self.k_squared*psi_hat))+2*(np.real(ifft2(-(self.kx**2)*psi_hat))*np.real(ifft2(-(self.ky**2)*psi_hat))-(np.real(ifft2(-(self.kx*self.ky)*psi_hat)))**2)
+        Lap_P=rho*f*np.real(ifft2(-self.k_squared*psi_hat, workers=_N_WORKERS))+2*(np.real(ifft2(-(self.kx**2)*psi_hat, workers=_N_WORKERS))*np.real(ifft2(-(self.ky**2)*psi_hat, workers=_N_WORKERS))-(np.real(ifft2(-(self.kx*self.ky)*psi_hat, workers=_N_WORKERS)))**2)
 
         with np.errstate(invalid='ignore', divide='ignore'):
-          P_hat=np.where(self.k_squared==0, fft2(Lap_P), -fft2(Lap_P)/self.k_squared)
+          P_hat=np.where(self.k_squared==0, fft2(Lap_P, workers=_N_WORKERS), -fft2(Lap_P, workers=_N_WORKERS)/self.k_squared)
         P_hat=np.where(np.logical_or(abs(self.K_o)>mx,abs(self.L_o)>my), 0, P_hat)
         
         #P_hat=fft2(Lap_P)/self.k_squared
-        P = np.real(ifft2(P_hat))
+        P = np.real(ifft2(P_hat, workers=_N_WORKERS))
         return( u, v ,P)
         
     def plot_uvp(self,u, v, h, u_sfc, v_sfc, P, ts, path):   
@@ -155,8 +159,8 @@ class SWE_functions:
         secd = time-hour*3600-mint*60
         i=time//60
         
-        vor = np.real(ifft2(1j*self.kx*fft2(v))) - np.real(ifft2(1j*self.ky*fft2(u)))
-        vor_sfc = np.real(ifft2(1j*self.kx*fft2(v_sfc))) - np.real(ifft2(1j*self.ky*fft2(u_sfc)))
+        vor = np.real(ifft2(1j*self.kx*fft2(v, workers=_N_WORKERS), workers=_N_WORKERS)) - np.real(ifft2(1j*self.ky*fft2(u, workers=_N_WORKERS), workers=_N_WORKERS))
+        vor_sfc = np.real(ifft2(1j*self.kx*fft2(v_sfc, workers=_N_WORKERS), workers=_N_WORKERS)) - np.real(ifft2(1j*self.ky*fft2(u_sfc, workers=_N_WORKERS), workers=_N_WORKERS))
         
         cmap=cm.jet
         cmap.set_under('#ffffff')
@@ -197,7 +201,7 @@ class SWE_functions:
         
         f_hat = self.wave_filter(f)
         #f_hat=fft2(f)
-        return (np.real(ifft2(1j*self.kx*f_hat)), np.real(ifft2(1j*self.ky*f_hat)))
+        return (np.real(ifft2(1j*self.kx*f_hat, workers=_N_WORKERS)), np.real(ifft2(1j*self.ky*f_hat, workers=_N_WORKERS)))
         
         #return(self.I1.dot(f.T).T/(2*self.dx), self.I1.dot(f)/(2*self.dy))
     
@@ -205,7 +209,7 @@ class SWE_functions:
         
         f_hat = self.wave_filter(f)
         #f_hat=fft2(f)
-        return np.real(ifft2(-(self.k_squared) * f_hat))
+        return np.real(ifft2(-(self.k_squared) * f_hat, workers=_N_WORKERS))
         
         #return(self.I2.dot(f.T).T/(self.dx**2)+self.I2.dot(f)/(self.dy**2))
     
@@ -213,7 +217,7 @@ class SWE_functions:
         
         f_hat = self.wave_filter(f)
         #f_hat=fft2(f)
-        return np.real(ifft2(-(self.k_squared)**2 * f_hat))
+        return np.real(ifft2(-(self.k_squared)**2 * f_hat, workers=_N_WORKERS))
         
         #return(self.I2.dot(f.T).T/(self.dx**2)+self.I2.dot(f)/(self.dy**2))
     
@@ -351,23 +355,3 @@ class SWE_functions:
         f_w.description=f'Total time: {hour} hours'+f', nu of free ATM={self.nu1}, nu of BL={self.nu2}'
         
         f_w.close()
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
