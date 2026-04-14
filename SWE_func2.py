@@ -11,6 +11,11 @@ import matplotlib.cm as cm
 import netCDF4 as nc
 
 
+import numexpr as ne
+import os
+ne.set_num_threads(os.cpu_count())
+
+
 _N_WORKERS = os.cpu_count()   # 自動抓 CPU 數，你的機器會是 16 或 32 之類的
                                # 也可以手動設，例如 _N_WORKERS = 8
 
@@ -54,17 +59,33 @@ class SWE_functions:
         lnt = 350e+3
         self.r = (((self.X-self.x[Nx//2])/lnt)**2+((self.Y-self.y[Nx//2])/lnt)**2)**0.5
     
+
+    # ============================================================
+    # 修改 wave_filter（原本有大量逐元素運算）
+    # ============================================================
     def wave_filter(self, f):
-        #f_hat = np.where(np.logical_or(self.K==0,self.L==0), fft2(f), fft2(f)*(np.sin(self.K*np.pi/self.Nx)/(self.K*np.pi/self.Nx))*(np.sin(self.L*np.pi/self.Ny)/(self.L*np.pi/self.Ny)))
+        K, L = self.K, self.L
+        K_o, L_o = self.K_o, self.L_o
+        mx, my = self.mx, self.my
+
+        f_hat = fft2(f)
 
         with np.errstate(invalid='ignore', divide='ignore'):
-          f_hat = np.where(np.logical_or(self.K==0,self.L==0), \
-                           fft2(f), fft2(f)*(np.sin(self.K*np.pi/(2*self.mx))/(self.K*np.pi/(2*self.mx)))*(np.sin(self.L*np.pi/(2*self.my))/(self.L*np.pi/(2*self.my))))
-        f_hat = np.where(np.logical_or(abs(self.K_o)>mx,abs(self.L_o)>my), 0, f_hat)
+            # 原本：fft2(f) * (sin(...)/(...)） * (sin(...)/(...))
+            # 用 numexpr 一次算完，省去中間暫存陣列
+            scale = ne.evaluate(
+                "where((K==0)|(L==0), 1.0,"
+                " sin(K*pi/(2*mx)) / (K*pi/(2*mx))"
+                " * sin(L*pi/(2*my)) / (L*pi/(2*my)))",
+                local_dict={'K': K, 'L': L, 'mx': float(mx), 'my': float(my),
+                            'pi': np.pi}
+            )
+            f_hat = ne.evaluate("where((abs(K_o)>mx)|(abs(L_o)>my), 0, f_hat*scale)",
+                                local_dict={'K_o': K_o, 'L_o': L_o,
+                                            'mx': float(mx), 'my': float(my),
+                                            'f_hat': f_hat, 'scale': scale})
+        return f_hat
 
-
-        #f_hat = fft2(f)       
-        return (f_hat)
         
     def ini_wind(self, zeta):
         zeta_hat = fft2(zeta)
@@ -225,51 +246,75 @@ class SWE_functions:
         return np.real(ifft2(-(self.k_squared)**2 * f_hat))
         
         #return(self.I2.dot(f.T).T/(self.dx**2)+self.I2.dot(f)/(self.dy**2))
-    
+ 
+    # ============================================================
+    # 修改 N_S_EQ（最耗時的函式，有很多逐元素四則運算）
+    # ============================================================
     def N_S_EQ(self, wind, t, u_r, v_r, w, h, P):
         u, v = wind
-        # pressure gradient force
         dPx, dPy = self.Spatial_diff(P)
-        PF_u = -(1/rho)* dPx; PF_v = -(1/rho)* dPy
-        # Coriolis force
-        CF_u = f*v; CF_v = -f*u
-        # Adevection
-        w_p = -0.5*(np.abs(w)-w)
+        H = self.H
+
+        # pressure gradient + Coriolis（合併成一個 ne.evaluate）
+        PF_CF_u = ne.evaluate("-dPx/rho + f*v", local_dict={'dPx': dPx, 'rho': rho, 'f': f, 'v': v})
+        PF_CF_v = ne.evaluate("-dPy/rho - f*u", local_dict={'dPy': dPy, 'rho': rho, 'f': f, 'u': u})
+
+        # Advection
+        w_p = ne.evaluate("where(w<0, -w, 0) + where(w>0, 0, 0)")   # -0.5*(|w|-w)
+        w_p = ne.evaluate("0.5*(abs(w)-w)", local_dict={'w': w})      # 簡化
         dux, duy = self.Spatial_diff(u)
         dvx, dvy = self.Spatial_diff(v)
-        ADV_u = u* dux + v* duy + w_p* (u_r-u)/self.H
-        ADV_v = u* dvx + v* dvy + w_p* (v_r-v)/self.H
+        ADV_u = ne.evaluate("u*dux + v*duy + w_p*(u_r-u)/H",
+                            local_dict={'u':u,'dux':dux,'v':v,'duy':duy,'w_p':w_p,'u_r':u_r,'H':H})
+        ADV_v = ne.evaluate("u*dvx + v*dvy + w_p*(v_r-v)/H",
+                            local_dict={'u':u,'dvx':dvx,'v':v,'dvy':dvy,'w_p':w_p,'v_r':v_r,'H':H})
+
         # Viscosity
-        VC_u = self.nu2* ( self.Laplace(u))
-        VC_v = self.nu2* ( self.Laplace(v))
-        # friction
-        vel = 0.78*(u**2+v**2)**0.5
-        
-        CD = np.where((vel>1e-5)&(vel<=25), (1e-3)*(2.7/vel + 0.142 + 0.0764*vel), 0)
-        CD = np.where((vel>25), (1e-3)*(2.16 + 0.5406*(1-np.exp(-((vel-25)/7.5)))),CD)
-        
-        FR_u = CD*vel*u/self.H
-        FR_v = CD*vel*v/self.H
-        
-        # Total
-        u_term = PF_u + CF_u - FR_u + VC_u - ADV_u
-        v_term = PF_v + CF_v - FR_v + VC_v - ADV_v
-        
-        return ( np.array([u_term, v_term]) )
+        VC_u = ne.evaluate("nu2*lap_u", local_dict={'nu2': self.nu2, 'lap_u': self.Laplace(u)})
+        VC_v = ne.evaluate("nu2*lap_v", local_dict={'nu2': self.nu2, 'lap_v': self.Laplace(v)})
+
+        # Friction (CD 有條件式，保留 numpy where，其餘用 ne)
+        vel = ne.evaluate("0.78*sqrt(u**2+v**2)", local_dict={'u': u, 'v': v})
+        CD = np.where((vel > 1e-5) & (vel <= 25),
+                    (1e-3) * (2.7 / vel + 0.142 + 0.0764 * vel), 0)
+        CD = np.where(vel > 25,
+                    (1e-3) * (2.16 + 0.5406 * (1 - np.exp(-((vel - 25) / 7.5)))), CD)
+        FR_u = ne.evaluate("CD*vel*u/H", local_dict={'CD':CD,'vel':vel,'u':u,'H':H})
+        FR_v = ne.evaluate("CD*vel*v/H", local_dict={'CD':CD,'vel':vel,'v':v,'H':H})
+
+        u_term = ne.evaluate("PF_CF_u - FR_u + VC_u - ADV_u",
+                            local_dict={'PF_CF_u':PF_CF_u,'FR_u':FR_u,'VC_u':VC_u,'ADV_u':ADV_u})
+        v_term = ne.evaluate("PF_CF_v - FR_v + VC_v - ADV_v",
+                            local_dict={'PF_CF_v':PF_CF_v,'FR_v':FR_v,'VC_v':VC_v,'ADV_v':ADV_v})
+
+        return np.array([u_term, v_term])
     
+
+    # ============================================================
+    # 修改 SWE
+    # ============================================================
     def SWE(self, var, t, Q, w_sfc, u_sfc, v_sfc):
         u, v, h = var
         dhx, dhy = self.Spatial_diff(h)
         dux, duy = self.Spatial_diff(u)
         dvx, dvy = self.Spatial_diff(v)
-        
-        w_p = 0.5* (np.abs(w_sfc)+w_sfc)
+        H = self.H
 
-        u_term = -g* dhx + f* v - u* dux - v* duy - w_p* (u-u_sfc)/self.H + self.nu1* self.Laplace(u)
-        v_term = -g* dhy - f* u - u* dvx - v* dvy - w_p* (v-v_sfc)/self.H + self.nu1* self.Laplace(v)
-        h_term = -(self.H + h)* (dux + dvy) - u* dhx - v* dhy -(self.H + h)* Q
-        
-        return ( np.array([u_term, v_term, h_term]) )
+        w_p = ne.evaluate("0.5*(abs(w_sfc)+w_sfc)", local_dict={'w_sfc': w_sfc})
+
+        u_term = ne.evaluate(
+            "-g*dhx + f*v - u*dux - v*duy - w_p*(u-u_sfc)/H + nu1*lap_u",
+            local_dict={'g':g,'dhx':dhx,'f':f,'v':v,'u':u,'dux':dux,'duy':duy,
+                        'w_p':w_p,'u_sfc':u_sfc,'H':H,'nu1':self.nu1,'lap_u':self.Laplace(u)})
+        v_term = ne.evaluate(
+            "-g*dhy - f*u - u*dvx - v*dvy - w_p*(v-v_sfc)/H + nu1*lap_v",
+            local_dict={'g':g,'dhy':dhy,'f':f,'u':u,'v':v,'dvx':dvx,'dvy':dvy,
+                        'w_p':w_p,'v_sfc':v_sfc,'H':H,'nu1':self.nu1,'lap_v':self.Laplace(v)})
+        h_term = ne.evaluate(
+            "-(H+h)*(dux+dvy) - u*dhx - v*dhy - (H+h)*Q",
+            local_dict={'H':H,'h':h,'dux':dux,'dvy':dvy,'u':u,'dhx':dhx,'v':v,'dhy':dhy,'Q':Q})
+
+        return np.array([u_term, v_term, h_term])
     
     
     def RK4(self, func, y, t, *args):
