@@ -81,7 +81,7 @@ class Physics:
         CF_v = ne.evaluate("-f*u",      local_dict={'f': f_cor, 'u': u})
 
         # w_p = -0.5*(|w|-w)，只保留 w<0 的部分（與原版相同）
-        w_p = ne.evaluate("0.5*(abs(w)-w)", local_dict={'w': w})
+        w_p = ne.evaluate("-0.5*(abs(w)-w)", local_dict={'w': w})
 
         ADV_u = ne.evaluate("u*dux + v*duy + w_p*(u_r-u)/H",
                             local_dict={'u':u,'dux':dux,'v':v,'duy':duy,
