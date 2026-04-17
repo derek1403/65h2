@@ -224,7 +224,3 @@ $$r_{2} = \sqrt{\left(\frac{x-x_0}{a_{2}}\right)^2 + \left(\frac{y-y_0}{b_{2}}\r
 - **Spin-up 時間**：前 `SP` 小時邊界層不對自由大氣施加強迫，避免初始不平衡造成的數值衝擊。
 - **頻譜濾波**：`wave_filter` 中的 Lanczos 平滑與 2/3 去混疊規則對長時間積分的穩定性至關重要，**請勿移除**。
 
-# 示意圖
-```json?chameleon
-{"component":"LlmGeneratedComponent","props":{"height":"600px","prompt":"建立一個交互式橢圓渦旋 (Ellipse Vortex) 生成模擬器。這對應使用者程式碼中的 initial_conditions.py。\n\n1. 設定網格：512x512，顯示範圍約 700km x 700km。\n2. 提供 Slider 控制項：\n   - a1 (短軸長度): 範圍 10km 到 50km。\n   - b1 (長軸長度): 範圍 20km 到 100km。\n   - zeta0 (最大渦度值): 範圍 5e-4 到 5e-3。\n3. 即時渲染：\n   - 使用 Canvas 繪製渦度的 Heatmap。\n   - 呈現橢圓形狀隨參數變化的過程。\n4. 數學參考：顯示 r1 = sqrt(((X-x0)/a1)^2 + ((Y-y0)/b1)^2) 的公式。\n5. 語言要求：繁體中文。幫助使用者理解如何自定義初始條件。","id":"im_951888f86fb5d38b"}}
-```
