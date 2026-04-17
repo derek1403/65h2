@@ -175,7 +175,7 @@ $$y^{n+1} = y^n + \frac{\Delta t}{6}(k_1 + 2k_2 + 2k_3 + k_4)$$
 $$
 \zeta(x,y) = \begin{cases} 
 \zeta_0 & r_1 < 1 \\ 
-\zeta_0 \, S\left(\dfrac{1-r_1}{r_2-r_1}\right) & 1 \leq r_1 \leq r_2^{-1} \\
+\zeta_0 \  S\left(\dfrac{1-r_1}{r_2-r_1}\right) & 1 \leq r_1 \leq r_2^{-1} \\
 0 & r_2 > 1 
 \end{cases}
 $$
