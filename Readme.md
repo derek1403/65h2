@@ -73,7 +73,7 @@ $$\frac{\partial v}{\partial t} = -g\frac{\partial h}{\partial y} - fu - \mathbf
 
 $$\frac{\partial h}{\partial t} = -(H+h)\left(\frac{\partial u}{\partial x}+\frac{\partial v}{\partial y}\right) - \mathbf{u}\cdot\nabla h - (H+h)Q$$
 
-其中 $w_p = \frac{1}{2}(|w_{sfc}| + w_{sfc})$ 為向上輸送的垂直速度篩選項（僅保留 $w_{sfc}>0$ 的部分）；$Q$ 為質量匯項（由實驗模式決定）。
+其中 $w_p = \frac{1}{2}(|w_{sfc}| + w_{sfc})$ 為向上輸送的垂直速度篩選項（僅保留 $w_{sfc}>0$ 的部分）； $Q$ 為質量匯項（由實驗模式決定）。
 
 ### 邊界層：簡化 Navier-Stokes 方程
 
@@ -172,7 +172,13 @@ $$y^{n+1} = y^n + \frac{\Delta t}{6}(k_1 + 2k_2 + 2k_3 + k_4)$$
 
 預設初始渦旋為**橢圓形渦旋（Ellipse Vortex）**，以平滑函數 $S(s) = 1 - 3s^2 + 2s^3$ 建立連續的渦度邊界：
 
-$$\zeta(x,y) = \begin{cases} \zeta_0 & r_1 < 1 \\ \zeta_0 \, S\!\left(\dfrac{1-r_1}{r_2-r_1}\right) & 1 \leq r_1 \leq r_2^{-1} \\ 0 & r_2 > 1 \end{cases}$$
+$$
+\zeta(x,y) = \begin{cases} 
+\zeta_0 & r_1 < 1 \\ 
+\zeta_0 \, S\!\left(\dfrac{1-r_1}{r_2-r_1}\right) & 1 \leq r_1 \leq r_2^{-1} \\
+0 & r_2 > 1 
+\end{cases}
+$$
 
 其中 $r_1, r_2$ 為橢圓無因次半徑，定義如下：
 
